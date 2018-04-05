@@ -47,7 +47,7 @@
         NSLog(@"session 中的 %@ 成功调用",task);
     }];
     
-    NSURLSessionDataTask *task = [manager POST:@"https://api.douban.com/v2/book/1220562" parameters:nil progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+    NSURLSessionDataTask *task = [manager POST:@"https://api.douban.com/v2/book/1220562" parameters:@{@"testKey":@"test!Value中文"} progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
         NSLog(@"请求成功 %@", task);
     } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
         

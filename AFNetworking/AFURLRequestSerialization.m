@@ -44,6 +44,8 @@ typedef NSString * (^AFQueryStringSerializationBlock)(NSURLRequest *request, id 
     - parameter string: The string to be percent-escaped.
     - returns: The percent-escaped string.
  */
+//对参数中的 field - value 进行编码
+//skill: URL query的Percent编码
 NSString * AFPercentEscapedStringFromString(NSString *string) {
     static NSString * const kAFCharactersGeneralDelimitersToEncode = @":#[]@"; // does not include "?" or "/" due to RFC 3986 - Section 3.4
     static NSString * const kAFCharactersSubDelimitersToEncode = @"!$&'()*+,;=";
@@ -67,6 +69,7 @@ NSString * AFPercentEscapedStringFromString(NSString *string) {
         range = [string rangeOfComposedCharacterSequencesForRange:range];
 
         NSString *substring = [string substringWithRange:range];
+        
         NSString *encoded = [substring stringByAddingPercentEncodingWithAllowedCharacters:allowedCharacterSet];
         [escaped appendString:encoded];
 
@@ -76,7 +79,7 @@ NSString * AFPercentEscapedStringFromString(NSString *string) {
 	return escaped;
 }
 
-#pragma mark -
+#pragma mark - AFQueryStringPair 用于生成 field=value （编码后）的query 字符串
 
 @interface AFQueryStringPair : NSObject
 @property (readwrite, nonatomic, strong) id field;
@@ -105,13 +108,14 @@ NSString * AFPercentEscapedStringFromString(NSString *string) {
     if (!self.value || [self.value isEqual:[NSNull null]]) {
         return AFPercentEscapedStringFromString([self.field description]);
     } else {
+        //!!!:值取的是 description
         return [NSString stringWithFormat:@"%@=%@", AFPercentEscapedStringFromString([self.field description]), AFPercentEscapedStringFromString([self.value description])];
     }
 }
 
 @end
 
-#pragma mark -
+#pragma mark - 用于生成query编码的String
 
 FOUNDATION_EXPORT NSArray * AFQueryStringPairsFromDictionary(NSDictionary *dictionary);
 FOUNDATION_EXPORT NSArray * AFQueryStringPairsFromKeyAndValue(NSString *key, id value);
@@ -122,20 +126,21 @@ NSString * AFQueryStringFromParameters(NSDictionary *parameters) {
         [mutablePairs addObject:[pair URLEncodedStringValue]];
     }
 
-    return [mutablePairs componentsJoinedByString:@"&"];
+    return [mutablePairs componentsJoinedByString:@"&"]; //生成 filed=value&......
 }
 
 NSArray * AFQueryStringPairsFromDictionary(NSDictionary *dictionary) {
     return AFQueryStringPairsFromKeyAndValue(nil, dictionary);
 }
-
+//将query转为[AFQueryStringPair]
 NSArray * AFQueryStringPairsFromKeyAndValue(NSString *key, id value) {
     NSMutableArray *mutableQueryStringComponents = [NSMutableArray array];
-
+    //skill: NSSortDescriptor
     NSSortDescriptor *sortDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"description" ascending:YES selector:@selector(compare:)];
-
+    //集合对象会递归遍历生成[AFQueryStringPair]
     if ([value isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dictionary = value;
+        //对字典进行了key排序
         // Sort dictionary keys to ensure consistent ordering in query string, which is important when deserializing potentially ambiguous sequences, such as an array of dictionaries
         for (id nestedKey in [dictionary.allKeys sortedArrayUsingDescriptors:@[ sortDescriptor ]]) {
             id nestedValue = dictionary[nestedKey];
@@ -169,7 +174,7 @@ NSArray * AFQueryStringPairsFromKeyAndValue(NSString *key, id value) {
 - (NSMutableURLRequest *)requestByFinalizingMultipartFormData;
 @end
 
-#pragma mark -
+#pragma mark - kvo 监测的keyPaths
 
 static NSArray * AFHTTPRequestSerializerObservedKeyPaths() {
     static NSArray *_AFHTTPRequestSerializerObservedKeyPaths = nil;
@@ -207,7 +212,7 @@ static void *AFHTTPRequestSerializerObserverContext = &AFHTTPRequestSerializerOb
 
     self.mutableHTTPRequestHeaders = [NSMutableDictionary dictionary];
     self.requestHeaderModificationQueue = dispatch_queue_create("requestHeaderModificationQueue", DISPATCH_QUEUE_CONCURRENT);
-
+    // 设置Accept-Language
     // Accept-Language HTTP Header; see http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.4
     NSMutableArray *acceptLanguagesComponents = [NSMutableArray array];
     [[NSLocale preferredLanguages] enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
@@ -216,7 +221,7 @@ static void *AFHTTPRequestSerializerObserverContext = &AFHTTPRequestSerializerOb
         *stop = q <= 0.5f;
     }];
     [self setValue:[acceptLanguagesComponents componentsJoinedByString:@", "] forHTTPHeaderField:@"Accept-Language"];
-
+    // 设置 userAgent
     NSString *userAgent = nil;
 #if TARGET_OS_IOS
     // User-Agent Header; see http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.43
@@ -239,7 +244,7 @@ static void *AFHTTPRequestSerializerObserverContext = &AFHTTPRequestSerializerOb
 
     // HTTP Method Definitions; see http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html
     self.HTTPMethodsEncodingParametersInURI = [NSSet setWithObjects:@"GET", @"HEAD", @"DELETE", nil];
-
+    //kvo
     self.mutableObservedChangedKeyPaths = [NSMutableSet set];
     for (NSString *keyPath in AFHTTPRequestSerializerObservedKeyPaths()) {
         if ([self respondsToSelector:NSSelectorFromString(keyPath)]) {
@@ -250,7 +255,7 @@ static void *AFHTTPRequestSerializerObserverContext = &AFHTTPRequestSerializerOb
     return self;
 }
 
-- (void)dealloc {
+- (void)dealloc { // 移除kvo监测
     for (NSString *keyPath in AFHTTPRequestSerializerObservedKeyPaths()) {
         if ([self respondsToSelector:NSSelectorFromString(keyPath)]) {
             [self removeObserver:self forKeyPath:keyPath context:AFHTTPRequestSerializerObserverContext];
@@ -258,7 +263,7 @@ static void *AFHTTPRequestSerializerObserverContext = &AFHTTPRequestSerializerOb
     }
 }
 
-#pragma mark -
+#pragma mark - XCTest中KVO崩溃的问题修复
 
 // Workarounds for crashing behavior using Key-Value Observing with XCTest
 // See https://github.com/AFNetworking/AFNetworking/issues/2523
@@ -334,6 +339,7 @@ forHTTPHeaderField:(NSString *)field
 }
 
 - (void)clearAuthorizationHeader {
+    //skill: dispatch_barrier_async
     dispatch_barrier_async(self.requestHeaderModificationQueue, ^{
         [self.mutableHTTPRequestHeaders removeObjectForKey:@"Authorization"];
     });
@@ -350,7 +356,7 @@ forHTTPHeaderField:(NSString *)field
     self.queryStringSerialization = block;
 }
 
-#pragma mark -
+#pragma mark -  生成NSMutableURLRequest （URL等）
 
 - (NSMutableURLRequest *)requestWithMethod:(NSString *)method
                                  URLString:(NSString *)URLString
@@ -366,7 +372,7 @@ forHTTPHeaderField:(NSString *)field
 
     NSMutableURLRequest *mutableRequest = [[NSMutableURLRequest alloc] initWithURL:url];
     mutableRequest.HTTPMethod = method;
-
+    //skill: kvo+kvc方式在多属性的时候，只设置用户设置的属性
     for (NSString *keyPath in AFHTTPRequestSerializerObservedKeyPaths()) {
         if ([self.mutableObservedChangedKeyPaths containsObject:keyPath]) {
             [mutableRequest setValue:[self valueForKeyPath:keyPath] forKey:keyPath];
@@ -534,7 +540,7 @@ forHTTPHeaderField:(NSString *)field
 
     return [super automaticallyNotifiesObserversForKey:key];
 }
-
+// kvo keyPath设置值后的值会 mutableObservedChangedKeyPaths中
 - (void)observeValueForKeyPath:(NSString *)keyPath
                       ofObject:(__unused id)object
                         change:(NSDictionary *)change
